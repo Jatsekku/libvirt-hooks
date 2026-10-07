@@ -1,15 +1,14 @@
 {
-  self,
   config,
   lib,
   pkgs,
   ...
 }:
+with builtins;
 with lib;
+with types;
 let
-
-  cfg = config.virtualisation.libvirtd.scopedHooks;
-  "libvirt-hooks-dispatcher" = self.packages.${pkgs.system}.libvirt-hooks-dispatcher;
+  cfg = config.virtualisation.libvirtd.scopedHooks.qemu;
 
   # Don't use qemu/d as it's also managed by libvirtd
   hooksRoot = "/var/lib/libvirt/hooks/qemu";
@@ -23,43 +22,40 @@ let
     "release"
   ];
 
-  hookPhasesModule =
-    with types;
-    submodule {
-      options = {
-        begin = mkOption {
-          type = nullOr (oneOf [
-            str
-            (listOf str)
-          ]);
-          default = null;
-          description = "Path(s) to script(s) executed at the begin phase.";
-        };
-        end = mkOption {
-          type = nullOr (oneOf [
-            str
-            (listOf str)
-          ]);
-          default = null;
-          description = "Path(s) to script(s) executed at the end phase.";
-        };
+  hookPhasesModule = submodule {
+    options = {
+      begin = mkOption {
+        type = nullOr (oneOf [
+          str
+          (listOf str)
+        ]);
+        default = null;
+        description = "Path(s) to script(s) executed at the begin phase.";
+      };
+
+      end = mkOption {
+        type = nullOr (oneOf [
+          str
+          (listOf str)
+        ]);
+        default = null;
+        description = "Path(s) to script(s) executed at the end phase.";
       };
     };
+  };
 
-  hooksModule =
-    with types;
-    submodule {
-      options = builtins.listToAttrs (
-        map (hookName: {
-          name = hookName;
-          value = mkOption {
-            type = hookPhasesModule;
-            default = { };
-            description = "Hook type";
-          };
-        }) hooksNames
-      );
-    };
+  hooksModule = submodule {
+    options = listToAttrs (
+      map (hookName: {
+        name = hookName;
+        value = mkOption {
+          type = hookPhasesModule;
+          default = { };
+          description = "Hook type";
+        };
+      }) hooksNames
+    );
+  };
 
   # Create single symlink to script
   mkVmHookSymlink =
@@ -70,7 +66,7 @@ let
       hookExe,
     }:
     let
-      hookExeFileName = builtins.baseNameOf hookExe;
+      hookExeFileName = baseNameOf hookExe;
       targetPath = "${hooksRoot}/${vmName}/${hookType}/${hookPhase}/${hookExeFileName}";
       sourcePath = hookExe;
     in
@@ -85,8 +81,8 @@ let
       hookEndExes,
     }:
     let
-      # Filter out all nulls and nnormalize type to list
-      normalize = xs: builtins.filter (x: x != null) (lib.lists.toList xs);
+      # Filter out all nulls and normalize type to list
+      normalize = xs: filter (x: x != null) (lists.toList xs);
 
       normalizedHookBeginExes = normalize hookBeginExes;
       normalizedHookEndExes = normalize hookEndExes;
@@ -123,32 +119,35 @@ let
       ) hooksConfig
     );
 
-  # Create symlinks for all phases, all hookTypes and all defied VMs
+  # Create symlinks for all phases, all hookTypes and all defined VMs
   mkVmsHooks =
     { vmsConfig }:
     builtins.concatLists (
       attrsets.mapAttrsToList (vmName: hooksConfig: mkVmHooks { inherit vmName hooksConfig; }) vmsConfig
     );
 
-  qemuVmsHooks = mkVmsHooks { vmsConfig = cfg.qemu.perGuest; };
+  qemuVmsHooks = mkVmsHooks { vmsConfig = cfg.perGuest; };
 
   isLibvirtEnabled = config.virtualisation.libvirtd.enable;
-
 in
 {
-  options.virtualisation.libvirtd.scopedHooks = {
-    qemu = {
-      enable = lib.mkEnableOption "Qemu scoped hooks";
-      perGuest = lib.mkOption {
-        type = types.attrsOf hooksModule;
-        default = { };
-        description = "Per guest qemu hooks";
-      };
+  options.virtualisation.libvirtd.scopedHooks.qemu = {
+    enable = mkEnableOption "Qemu scoped hooks";
+
+    package = mkOption {
+      type = package;
+      description = "libvirt-hooks package to use.";
+    };
+
+    perGuest = lib.mkOption {
+      type = attrsOf hooksModule;
+      default = { };
+      description = "Per guest qemu hooks";
     };
   };
 
-  config = lib.mkIf (cfg.qemu.enable && isLibvirtEnabled) {
+  config = mkIf (cfg.enable && isLibvirtEnabled) {
     systemd.tmpfiles.rules = qemuVmsHooks ++ removeHooksRootRule;
-    virtualisation.libvirtd.hooks.qemu.hooks-dispatcher = lib.getExe libvirt-hooks-dispatcher;
+    virtualisation.libvirtd.hooks.qemu.hooks-dispatcher = getExe cfg.package;
   };
 }

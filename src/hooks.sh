@@ -1,13 +1,13 @@
-#!/bin/bash
+#!/run/current-system/sw/bin/bash
 set +o errexit
 
 readonly HOOKS_ROOT_PATH="/var/lib/libvirt/hooks/qemu"
-readonly BASH_LOGGER_SH="/etc/bash-logger.sh"
+
 # Source logger module
 # shellcheck disable=SC1090,SC1091
 source "${BASH_LOGGER_SH}"
-logger_register_module "hooks-dispatcher" "$LOG_LEVEL_DBG"
-logger_set_log_file "/var/log/libvirt/hooks-dispatcher.log"
+logger_register_module "libvirt-hooks" LOG_LEVEL_DBG
+logger_set_log_file "$LOG_FILE_PATH"
 logger_set_log_format "%F %T (%mod_name) {%pid} %file:%line [%cs%lvl%ce] %msg"
 
 __is_arg_empty() {

@@ -1,55 +1,85 @@
 {
   description = "Libvirt hooks dispatcher";
 
+  # Flake inputs
   inputs = {
+    # Feature-rich, flexible logger utility for bash.
     bash-logger = {
       url = "github:Jatsekku/bash-logger";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    # Nix Packages collection & NixOS.
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      bash-logger,
-    }:
+    inputs@{ self, ... }:
     let
-      forAllSystems = nixpkgs.lib.genAttrs nixpkgs.lib.systems.flakeExposed;
+      # List of all supported systems
+      supportedSystems = inputs.nixpkgs.lib.systems.flakeExposed;
+
+      # Function for providing system-specific attributes
+      forEachSupportedSystem =
+        f:
+        inputs.nixpkgs.lib.genAttrs supportedSystems (
+          system:
+          f {
+            # Nixpkgs configured per system
+            pkgs = import inputs.nixpkgs {
+              inherit system;
+              # Apply overlays defined by flake itself
+              overlays = [ self.overlays.default ];
+            };
+            inherit system;
+          }
+        );
     in
     {
-      packages = forAllSystems (
-        system:
+      # Provide packages
+      packages = forEachSupportedSystem (
+        { pkgs, system }:
         let
-          pkgs = import nixpkgs { inherit system; };
-          bash-logger-pkg = bash-logger.packages.${system}.default;
-          libvirt-hooks-pkg = pkgs.callPackage ./package.nix { bash-logger = bash-logger-pkg; };
+          # Dependencies
+          bash-logger = inputs.bash-logger.packages.${system}.default;
+
+          # Build package set
+          libvirt-hooks-pkg = pkgs.callPackage ./nix/package.nix {
+            inherit bash-logger;
+          };
         in
         {
-          libvirt-hooks-dispatcher = libvirt-hooks-pkg;
+          # Expose package
+          libvirt-hooks = libvirt-hooks-pkg;
         }
       );
 
-      nixosModules = {
-        libvirt-hooks =
-          {
-            config,
-            lib,
-            pkgs,
-            ...
-          }:
-          import ./module.nix {
-            inherit
-              config
-              lib
-              pkgs
-              self
-              ;
-          };
-        default = self.nixosModules.libvirt-hooks;
+      # Inject packages via overlays
+      overlays.default = final: prev: {
+        inherit (self.packages.${final.system})
+          libvirt-hooks
+          ;
       };
 
-      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
+      # Provide NixOs modules
+      nixosModules = rec {
+        libvirt-hooks = { pkgs, lib, ... }: {
+          imports = [ ./nix/module.nix ];
+
+          # Inject the default package
+          virtualisation.libvirtd.scopedHooks.qemu.package =
+            lib.mkDefault
+              self.packages.${pkgs.stdenv.hostPlatform.system}.libvirt-hooks;
+        };
+
+        # Alias default to the exact same module
+        default = libvirt-hooks;
+      };
+
+      # Generate devShell for each system
+      devShells = forEachSupportedSystem ({ pkgs, ... }: import ./nix/devshell.nix { inherit pkgs; });
+
+      # Set formatter for Nix
+      formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt-tree);
     };
 }
