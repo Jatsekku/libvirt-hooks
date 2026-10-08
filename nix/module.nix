@@ -146,8 +146,17 @@ in
     };
   };
 
-  config = mkIf (cfg.enable && isLibvirtEnabled) {
-    systemd.tmpfiles.rules = qemuVmsHooks ++ removeHooksRootRule;
-    virtualisation.libvirtd.hooks.qemu.hooks-dispatcher = getExe cfg.package;
-  };
+  config = mkMerge [
+    {
+      # Fix for nixpkgs bug
+      # https://github.com/NixOS/nixpkgs/issues/377609
+      systemd.services.libvirtd-config.serviceConfig.RemainAfterExit = mkDefault true;
+    }
+    (mkIf (cfg.enable && isLibvirtEnabled) {
+      systemd.tmpfiles.rules = qemuVmsHooks ++ removeHooksRootRule;
+
+      # /var/lib/libvirt/hooks/qemu.d/
+      virtualisation.libvirtd.hooks.qemu.hooks-dispatcher = getExe cfg.package;
+    })
+  ];
 }
