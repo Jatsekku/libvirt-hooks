@@ -68,3 +68,14 @@ imports = [ inputs.libvirt-hooks.nixosModules.default ];
 
 ---
 
+## Logs
+Hooks dispatcher (`hooks.sh`) is using [bash-logger](https://github.com/Jatsekku/bash-logger) to provide logs.
+
+| Setting      | Value                                                      |
+| :----------- | :--------------------------------------------------------- |
+| `log_level`  | `LOG_LEVEL_DBG`                                            |
+| `log_file`   | `/var/log/libvirt/libvirt-hooks.log`                       |
+| `log_format` | `"%F %T (%mod_name) {%pid} %file:%line [%cs%lvl%ce] %msg"` |
+
+---
+
